@@ -436,6 +436,8 @@ button,input{font:inherit;color:inherit}
 .btn.ghosty{background:transparent;color:var(--on);border-color:color-mix(in srgb, var(--on) 55%, transparent)}
 .voted-note{margin:0;font:700 12px/1 var(--kr);letter-spacing:.04em;opacity:0;transition:opacity .3s}
 .has-pick .voted-note{opacity:.85}
+.vote-error{flex:none;margin:0;padding:9px 12px;border-radius:10px;background:#fff4ef;color:#c52319;
+  font:800 13px/1.4 var(--kr);text-align:center}
 .shake{animation:shake .4s}
 @keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
 
@@ -453,6 +455,7 @@ button,input{font:inherit;color:inherit}
 .sum-actions{display:flex;flex-direction:column;gap:8px}
 .sum-note{margin:0;font-size:13px;line-height:1.5;opacity:.8}
 .sum-note.ok{opacity:1;color:var(--butter);font-weight:700}
+.sum-note.error{opacity:1;color:#ff8d80;font-weight:800}
 .copybox{margin:0;padding:12px;border-radius:12px;background:color-mix(in srgb, var(--on) 10%, transparent);font:500 12px/1.5 var(--mono);white-space:pre-wrap;-webkit-user-select:text;user-select:text}
 
 /* ---------- final ---------- */
@@ -935,6 +938,10 @@ const CONFIG = {
       s.opts = opts;
       inner.appendChild(opts);
       inner.appendChild(h("p", "voted-note", "선택 완료 · 다음으로 넘어갑니다"));
+      s.error = h("p", "vote-error", "투표를 해야 다음 페이지로 넘어갈 수 있어요.");
+      s.error.hidden = true;
+      s.error.setAttribute("role", "alert");
+      inner.appendChild(s.error);
       syncVote(s);
     } else if (s.type === "summary") {
       const head = h("h2", "sum-head");
@@ -1008,6 +1015,7 @@ const CONFIG = {
   function syncVote(s) {
     const v = picks[s.cat.key];
     s.el.classList.toggle("has-pick", !!v);
+    if (v) s.error.hidden = true;
     s.opts.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(b.textContent === v)));
     if (s.input && v && document.activeElement !== s.input) s.input.value = v;
   }
@@ -1054,11 +1062,15 @@ const CONFIG = {
       note.className = "sum-note ok";
       note.textContent = "이 브라우저에서 투표가 제출됐어요.";
       s.actions.appendChild(note);
+      const finish = h("button", "btn no-nav", "확정하기");
+      finish.type = "button";
+      finish.addEventListener("click", () => go(slides.length - 1));
+      s.actions.appendChild(finish);
       return;
     }
-    note.textContent = "투표를 제출하면 이 브라우저에서는 다시 제출할 수 없어요.";
+    note.textContent = "확정하면 투표가 제출되고 마지막 페이지로 넘어가요.";
     s.actions.appendChild(note);
-    const submit = h("button", "btn no-nav", "투표 제출하기");
+    const submit = h("button", "btn no-nav", "확정하기");
     submit.type = "button";
     submit.addEventListener("click", () => submitVote(submit, note));
     s.actions.appendChild(submit);
@@ -1076,10 +1088,9 @@ const CONFIG = {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "제출에 실패했어요.");
       store.set(VOTED_KEY, vid);
-      note.className = "sum-note ok";
-      note.textContent = "투표가 저장됐어요. 감사합니다!";
-      button.remove();
+      go(slides.length - 1);
     } catch (error) {
+      note.className = "sum-note error";
       note.textContent = error.message || "제출에 실패했어요.";
       button.disabled = false;
     }
@@ -1145,6 +1156,7 @@ const CONFIG = {
   function resetSlide(s) {
     (s.lineEls || []).forEach(e => e.classList.remove("in", "past"));
     s.el.classList.remove("show-opts", "done");
+    if (s.type === "vote") s.error.hidden = true;
   }
 
   function go(i) {
@@ -1192,6 +1204,16 @@ const CONFIG = {
   function renderBars() { [...bars.children].forEach((b, i) => { b.firstChild.style.width = (fillFor(i) * 100) + "%"; }); }
 
   function next() {
+    const s = slides[cur];
+    if (s.type === "summary") return;
+    if (s.type === "vote" && !picks[s.cat.key]) {
+      if (!st.optsShown) { st.elapsed = st.optsAt; tick(); }
+      s.error.hidden = false;
+      s.error.classList.remove("shake");
+      void s.error.offsetWidth;
+      s.error.classList.add("shake");
+      return;
+    }
     if (st.revealed < st.times.length) { st.elapsed = st.times[st.revealed]; tick(); return; }
     if (st.optsAt != null && !st.optsShown) { st.elapsed = st.optsAt; tick(); return; }
     if (cur < slides.length - 1) go(cur + 1);
