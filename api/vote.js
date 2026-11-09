@@ -41,11 +41,13 @@ module.exports = async (request, response) => {
       issuedAt: Date.now()
     };
     const json = JSON.stringify(payload);
-    const signature = crypto.createHmac('sha256', VOTE_SHARED_SECRET).update(json).digest('hex');
+    // Sign an ASCII representation so form decoding cannot change Korean text.
+    const payload64 = Buffer.from(json, 'utf8').toString('base64url');
+    const signature = crypto.createHmac('sha256', VOTE_SHARED_SECRET).update(payload64).digest('hex');
     const upstream = await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ payload: json, signature }),
+      body: new URLSearchParams({ payload64, signature }),
       redirect: 'follow'
     });
     const result = JSON.parse(await upstream.text());

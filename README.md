@@ -12,6 +12,8 @@
 4. Vercel 프로젝트 환경 변수 `APPS_SCRIPT_URL`(Apps Script의 `/exec` 주소)과 `VOTE_SHARED_SECRET`(스크립트 속성과 동일한 값)을 유지합니다. `GOOGLE_CLIENT_ID`는 더 이상 필요 없으므로 제거할 수 있습니다. GitHub 변경이 Vercel에 배포되고 환경 변수 변경도 반영됐는지 확인합니다.
 5. 사이트에서 전체 부문을 선택하고 테스트 투표를 제출합니다. `응답_공개`에 한 행이 추가되고 `집계_공개`에 득표수가 표시되어야 합니다. 같은 브라우저에서 다시 제출하면 거부되어야 합니다.
 
+제출 전에 사이트 주소 뒤에 `/api/connection`을 붙여 열어 보세요. `connected: true`면 Vercel이 최신 Apps Script와 통신하고 두 곳의 비밀키가 일치합니다. `connected: false`면 응답의 `reason`과 `scriptVersion`을 확인하세요. 이 확인 API는 비밀키 값을 반환하지 않습니다.
+
 ## 새로 설치할 때
 
 - `VOTE_SHARED_SECRET`는 `openssl rand -hex 32`로 생성하고 Apps Script **프로젝트 설정 → 스크립트 속성** 및 Vercel **Secret** 환경 변수에 동일하게 입력합니다. GitHub에는 올리지 않습니다.

@@ -8,6 +8,7 @@ function spreadsheet_() {
 }
 const RESPONSE_TAB = '응답_공개';
 const TALLY_TAB = '집계_공개';
+const SCRIPT_VERSION = 'public-v2';
 const KEYS = [
   'mvp_vocal', 'mvp_piano', 'mvp_guitar', 'mvp_bass', 'mvp_perc',
   'new_vocal', 'new_piano', 'new_guitar', 'new_bass', 'new_perc',
@@ -27,19 +28,32 @@ function setup() {
   ensureSheet_(book, TALLY_TAB, ['부문', '후보', '득표수']);
 }
 
+// Used by the Vercel connection check; never returns the shared secret.
+function doGet(e) {
+  const challenge = String(e && e.parameter && e.parameter.challenge || '');
+  const secret = PropertiesService.getScriptProperties().getProperty('VOTE_SHARED_SECRET');
+  if (!/^[a-f0-9]{32,64}$/.test(challenge) || !secret || secret.length < 32) {
+    return result_(false, '연결 확인 요청이 올바르지 않습니다.');
+  }
+  const proof = hmac_(challenge, secret);
+  return ContentService.createTextOutput(JSON.stringify({ service: 'soul-vote', version: SCRIPT_VERSION, proof: proof }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 function doPost(e) {
   try {
     const secret = PropertiesService.getScriptProperties().getProperty('VOTE_SHARED_SECRET');
     if (!secret || secret.length < 32) return result_(false, '서버 비밀키가 설정되지 않았어요.');
     const body = e && e.parameter || {};
-    const json = body.payload || '';
+    const payload64 = body.payload64 || '';
     const signature = body.signature || '';
-    if (!json || json.length > 12000 || !/^[a-f0-9]{64}$/.test(signature)) {
+    if (!/^[A-Za-z0-9_-]{1,16000}$/.test(payload64) || !/^[a-f0-9]{64}$/.test(signature)) {
       return result_(false, '잘못된 요청입니다.');
     }
-    const expected = Utilities.computeHmacSha256Signature(json, secret)
-      .map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
+    const expected = hmac_(payload64, secret);
     if (signature !== expected) return result_(false, '인증되지 않은 요청입니다.');
+    const padded = payload64 + '='.repeat((4 - payload64.length % 4) % 4);
+    const json = Utilities.newBlob(Utilities.base64DecodeWebSafe(padded)).getDataAsString('UTF-8');
     const vote = JSON.parse(json);
     if (!vote.vid || !/^[a-zA-Z0-9-]{16,64}$/.test(String(vote.vid)) || !vote.picks ||
         Math.abs(Date.now() - Number(vote.issuedAt)) > 120000) {
@@ -70,6 +84,11 @@ function doPost(e) {
     console.error(error);
     return result_(false, '서버에서 투표를 저장하지 못했습니다.');
   }
+}
+
+function hmac_(value, secret) {
+  return Utilities.computeHmacSha256Signature(value, secret, Utilities.Charset.US_ASCII)
+    .map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
 }
 
 function refreshTally_(book, responses) {
