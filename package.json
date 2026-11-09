@@ -1,0 +1,11 @@
+{
+  "name": "soul-vote",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "python3 build.py"
+  },
+  "dependencies": {
+    "google-auth-library": "^10.0.0"
+  }
+}

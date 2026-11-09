@@ -1,0 +1,7 @@
+.DS_Store
+node_modules/
+__pycache__/
+.vercel/
+.env
+.env.*
+!.env.example
