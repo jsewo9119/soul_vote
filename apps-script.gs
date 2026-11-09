@@ -16,16 +16,18 @@ const KEYS = [
   'chemi', 'grand'
 ];
 const LABELS = [
-  '보컬 MVP', '피아노 MVP', '기타 MVP', '베이스 MVP', '퍼커션 MVP',
-  '보컬 신인상', '피아노 신인상', '기타 신인상', '베이스 신인상', '퍼커션 신인상',
-  '보컬 장족의 발전상', '피아노 장족의 발전상', '기타 장족의 발전상',
-  '베이스 장족의 발전상', '퍼커션 장족의 발전상', '베스트 케미상', '대상'
+  '보컬 부문 MVP', '피아노 부문 MVP', '기타 부문 MVP', '베이스 부문 MVP', '퍼커션 부문 MVP',
+  '보컬 부문 신인상', '피아노 부문 신인상', '기타 부문 신인상', '베이스 부문 신인상', '퍼커션 부문 신인상',
+  '보컬 부문 장족의 발전상', '피아노 부문 장족의 발전상', '기타 부문 장족의 발전상',
+  '베이스 부문 장족의 발전상', '퍼커션 부문 장족의 발전상', '베스트 케미상', '대상'
 ];
 
 function setup() {
   const book = spreadsheet_();
-  ensureSheet_(book, RESPONSE_TAB, ['제출 시각', '브라우저 ID'].concat(LABELS));
+  const responses = ensureSheet_(book, RESPONSE_TAB, ['제출 시각', '브라우저 ID'].concat(LABELS));
   ensureSheet_(book, TALLY_TAB, ['부문', '후보', '득표수']);
+  formatResponses_(responses);
+  refreshTally_(book, responses);
 }
 
 // Used by the Vercel connection check; never returns the shared secret.
@@ -92,26 +94,53 @@ function hmac_(value, secret) {
 }
 
 function refreshTally_(book, responses) {
-  const counts = {};
+  const counts = KEYS.map(function () { return {}; });
   if (responses.getLastRow() >= 2) {
     const rows = responses.getRange(2, 3, responses.getLastRow() - 1, KEYS.length).getDisplayValues();
     rows.forEach(function (row) {
       row.forEach(function (choice, index) {
         if (!choice) return;
-        const id = KEYS[index] + '\u0000' + choice;
-        counts[id] = (counts[id] || 0) + 1;
+        counts[index][choice] = (counts[index][choice] || 0) + 1;
       });
     });
   }
-  const output = Object.keys(counts).map(function (id) {
-    const parts = id.split('\u0000');
-    const index = KEYS.indexOf(parts[0]);
-    return [LABELS[index], parts[1], counts[id], index];
-  }).sort(function (a, b) { return a[3] - b[3] || b[2] - a[2] || a[1].localeCompare(b[1]); })
-    .map(function (row) { return row.slice(0, 3); });
   const tally = book.getSheetByName(TALLY_TAB);
-  if (tally.getLastRow() > 1) tally.getRange(2, 1, tally.getLastRow() - 1, 3).clearContent();
-  if (output.length) tally.getRange(2, 1, output.length, 3).setValues(output);
+  const requiredColumns = KEYS.length * 3;
+  if (tally.getMaxColumns() < requiredColumns) {
+    tally.insertColumnsAfter(tally.getMaxColumns(), requiredColumns - tally.getMaxColumns());
+  }
+  tally.clear();
+  tally.getRange('A1').setValue('2026 SOUL AWARDS 집계').setFontSize(18).setFontWeight('bold');
+  tally.getRange('A2').setValue('총 투표자 수').setFontWeight('bold');
+  tally.getRange('B2').setValue(Math.max(0, responses.getLastRow() - 1)).setFontWeight('bold');
+  tally.setFrozenRows(5);
+  KEYS.forEach(function (key, index) {
+    const column = index * 3 + 1;
+    const heading = tally.getRange(4, column, 1, 3);
+    heading.setBackground('#1a3cff').setFontColor('#ffffff').setFontWeight('bold');
+    tally.getRange(4, column).setValue(LABELS[index]);
+    const subhead = tally.getRange(5, column, 1, 2);
+    subhead.setValues([['후보', '득표']]).setBackground('#ffe36e').setFontWeight('bold');
+    tally.setColumnWidth(column, 170);
+    tally.setColumnWidth(column + 1, 75);
+    tally.setColumnWidth(column + 2, 22);
+    const ranked = Object.keys(counts[index]).map(function (name) {
+      return [name, counts[index][name]];
+    }).sort(function (a, b) { return b[1] - a[1] || a[0].localeCompare(b[0]); });
+    if (ranked.length) tally.getRange(6, column, ranked.length, 2).setValues(ranked);
+  });
+}
+
+function formatResponses_(responses) {
+  const header = responses.getRange(1, 1, 1, 2 + LABELS.length);
+  header.setValues([['제출 시각', '투표자 ID'].concat(LABELS)]);
+  header.setBackground('#1a3cff').setFontColor('#ffffff').setFontWeight('bold');
+  responses.setFrozenRows(1);
+  responses.setColumnWidth(1, 145);
+  responses.setColumnWidth(2, 300);
+  for (let column = 3; column <= 2 + LABELS.length; column++) {
+    responses.setColumnWidth(column, 160);
+  }
 }
 
 // Run manually if a previous tally refresh failed after a vote was saved.
@@ -126,6 +155,7 @@ function ensureSheet_(book, name, header) {
     sheet.getRange(1, 1, 1, header.length).setValues([header]).setFontWeight('bold');
     sheet.setFrozenRows(1);
   }
+  return sheet;
 }
 
 function safeCell_(value) {
