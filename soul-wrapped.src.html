@@ -1057,7 +1057,7 @@ const CONFIG = {
       s.actions.appendChild(note);
       return;
     }
-    note.textContent = "회원 구글 계정으로 로그인하면 투표가 한 번 제출돼요.";
+    note.textContent = "한양대 구글 계정으로 로그인하면 투표가 한 번 제출돼요.";
     s.actions.appendChild(note);
     const login = h("div", "google-login no-nav");
     s.actions.appendChild(login);
@@ -1085,7 +1085,7 @@ const CONFIG = {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || "제출에 실패했어요.");
             note.className = "sum-note ok";
-            note.textContent = "투표가 저장됐어요. 회원당 한 번만 제출할 수 있어요.";
+            note.textContent = "투표가 저장됐어요. 계정당 한 번만 제출할 수 있어요.";
             login.replaceChildren();
           } catch (error) {
             note.textContent = error.message || "제출에 실패했어요.";

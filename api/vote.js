@@ -39,8 +39,9 @@ module.exports = async (request, response) => {
     const ticket = await auth.verifyIdToken({ idToken: body.credential, audience: GOOGLE_CLIENT_ID });
     const identity = ticket.getPayload();
     if (!identity?.sub || !identity.email || !identity.email_verified ||
-        !(identity.email.endsWith('@gmail.com') || identity.hd)) {
-      return response.status(403).json({ error: '확인된 구글 계정으로 로그인해 주세요.' });
+        identity.hd !== 'hanyang.ac.kr' ||
+        !identity.email.toLowerCase().endsWith('@hanyang.ac.kr')) {
+      return response.status(403).json({ error: '한양대 Google Workspace 계정으로 로그인해 주세요.' });
     }
     const payload = {
       sub: identity.sub,

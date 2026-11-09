@@ -7,7 +7,6 @@ function spreadsheet_() {
   return SpreadsheetApp.openById(id);
 }
 const RESPONSE_TAB = '응답_자동';
-const MEMBER_TAB = '회원';
 const TALLY_TAB = '집계_자동';
 const KEYS = [
   'mvp_vocal', 'mvp_piano', 'mvp_guitar', 'mvp_bass', 'mvp_perc',
@@ -24,7 +23,6 @@ const LABELS = [
 
 function setup() {
   const book = spreadsheet_();
-  ensureSheet_(book, MEMBER_TAB, ['허용된 구글 이메일']);
   ensureSheet_(book, RESPONSE_TAB, ['제출 시각', '구글 계정 ID', '구글 이메일'].concat(LABELS));
   ensureSheet_(book, TALLY_TAB, ['부문', '후보', '득표수']);
 }
@@ -51,13 +49,10 @@ function doPost(e) {
     lock.waitLock(20000);
     try {
       const book = spreadsheet_();
-      const members = book.getSheetByName(MEMBER_TAB);
       const responses = book.getSheetByName(RESPONSE_TAB);
-      if (!members || !responses) return result_(false, '시트 준비가 필요합니다.');
-      const allowed = members.getLastRow() < 2 ? [] : members.getRange(2, 1, members.getLastRow() - 1, 1)
-        .getDisplayValues().map(function (r) { return r[0].trim().toLowerCase(); });
-      if (allowed.indexOf(String(vote.email).toLowerCase()) < 0) {
-        return result_(false, '회원 명단에 없는 구글 계정입니다.', 'NOT_MEMBER');
+      if (!responses) return result_(false, '시트 준비가 필요합니다.');
+      if (!String(vote.email).toLowerCase().endsWith('@hanyang.ac.kr')) {
+        return result_(false, '한양대 계정만 투표할 수 있습니다.', 'WRONG_DOMAIN');
       }
       if (responses.getLastRow() >= 2) {
         const existing = responses.getRange(2, 2, responses.getLastRow() - 1, 2).getDisplayValues();
