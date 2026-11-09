@@ -1,5 +1,4 @@
 const crypto = require('node:crypto');
-const { OAuth2Client } = require('google-auth-library');
 const candidates = require('./candidates.json');
 
 const SHEET_KEYS = [
@@ -8,18 +7,18 @@ const SHEET_KEYS = [
   'growth_vocal', 'growth_piano', 'growth_guitar', 'growth_bass', 'growth_perc',
   'chemi', 'grand'
 ];
-const auth = new OAuth2Client();
-
 module.exports = async (request, response) => {
   response.setHeader('Cache-Control', 'no-store');
   if (request.method !== 'POST') return response.status(405).json({ error: 'POST 요청만 허용됩니다.' });
-  const { GOOGLE_CLIENT_ID, APPS_SCRIPT_URL, VOTE_SHARED_SECRET } = process.env;
-  if (!GOOGLE_CLIENT_ID || !APPS_SCRIPT_URL || !VOTE_SHARED_SECRET) {
+  const { APPS_SCRIPT_URL, VOTE_SHARED_SECRET } = process.env;
+  if (!APPS_SCRIPT_URL || !VOTE_SHARED_SECRET) {
     return response.status(503).json({ error: '투표 서버 설정이 완료되지 않았어요.' });
   }
   try {
     const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
-    if (!body || typeof body.credential !== 'string' || !body.picks || typeof body.picks !== 'object') {
+    if (!body || typeof body.vid !== 'string' ||
+        !/^[a-zA-Z0-9-]{16,64}$/.test(body.vid) ||
+        !body.picks || typeof body.picks !== 'object') {
       return response.status(400).json({ error: '투표 내용이 올바르지 않아요.' });
     }
     const picks = {};
@@ -36,16 +35,8 @@ module.exports = async (request, response) => {
     if (picks.grand.length > 40 || /[\r\n]/.test(picks.grand)) {
       return response.status(400).json({ error: '대상 이름을 확인해 주세요.' });
     }
-    const ticket = await auth.verifyIdToken({ idToken: body.credential, audience: GOOGLE_CLIENT_ID });
-    const identity = ticket.getPayload();
-    if (!identity?.sub || !identity.email || !identity.email_verified ||
-        identity.hd !== 'hanyang.ac.kr' ||
-        !identity.email.toLowerCase().endsWith('@hanyang.ac.kr')) {
-      return response.status(403).json({ error: '한양대 Google Workspace 계정으로 로그인해 주세요.' });
-    }
     const payload = {
-      sub: identity.sub,
-      email: identity.email.toLowerCase(),
+      vid: body.vid,
       picks,
       issuedAt: Date.now()
     };

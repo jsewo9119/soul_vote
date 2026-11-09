@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>SOUL WRAPPED 2026</title>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -501,10 +500,6 @@ button,input{font:inherit;color:inherit}
    설정 (CONFIG) — 행사 전에 여기만 고치면 됩니다
    ===================================================================== */
 const CONFIG = {
-  /* 스프레드시트 연결: '2026 SOUL AWARDS 투표' 시트의 '설정 방법' 탭대로
-     Apps Script 를 웹 앱으로 배포한 뒤 나온 주소(…/exec)를 넣으세요. */
-  sheetEndpoint: "",
-
   /* ARCHIVE 사진 묶음: 공연 행사만(4월·5월·9월·11월), 공연마다 10장 (assets/photos).
      처음 열 때와 '처음부터 다시 보기'를 누를 때마다 5장을 새로 뽑아요:
      모든 공연이 최소 1장씩 나오고, 남는 칸은 무작위 공연에서 한 장 더, 날짜순.
@@ -601,7 +596,7 @@ const CONFIG = {
   const LIGHT = new Set(["stripes","butter","cream","ember"]);
   const STORE_KEY = "soulwrapped2026:picks";
   const VID_KEY = "soulwrapped2026:vid";
-  const SENT_KEY = "soulwrapped2026:sent";
+  const VOTED_KEY = "soulwrapped2026:public-voted";
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const $ = (s, r = document) => r.querySelector(s);
@@ -616,22 +611,12 @@ const CONFIG = {
   try { picks = JSON.parse(store.get(STORE_KEY) || "{}") || {}; } catch (e) { picks = {}; }
   const savePicks = () => store.set(STORE_KEY, JSON.stringify(picks));
 
-  /* one anonymous id per browser, so a re-submit replaces the earlier row in the sheet */
+  /* One local identifier per browser. Clearing browser storage creates a new ID. */
   let vid = store.get(VID_KEY);
   if (!vid) {
     vid = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
     store.set(VID_KEY, vid);
   }
-
-  /* ---------- Google Sheet (Apps Script web app) ---------- */
-  const endpoint = (() => {
-    try { const u = new URL(CONFIG.sheetEndpoint); return u.protocol === "https:" ? u.origin + u.pathname : ""; } catch (e) { return ""; }
-  })();
-  const submitUrl = () => {
-    const p = new URLSearchParams({ vid });
-    CATEGORIES.forEach(c => p.append(c.key, picks[c.key] || ""));
-    return endpoint + "?" + p.toString();
-  };
 
   /* ---------- slide script ----------
      "|" marks a phrase break: each phrase gets its own row, so lines never split mid-phrase. */
@@ -1065,45 +1050,38 @@ const CONFIG = {
       s.actions.appendChild(note);
       return;
     }
-    note.textContent = "한양대 구글 계정으로 로그인하면 투표가 한 번 제출돼요.";
+    if (store.get(VOTED_KEY) === vid) {
+      note.className = "sum-note ok";
+      note.textContent = "이 브라우저에서 투표가 제출됐어요.";
+      s.actions.appendChild(note);
+      return;
+    }
+    note.textContent = "투표를 제출하면 이 브라우저에서는 다시 제출할 수 없어요.";
     s.actions.appendChild(note);
-    const login = h("div", "google-login no-nav");
-    s.actions.appendChild(login);
-    showGoogleVoteButton(login, note);
+    const submit = h("button", "btn no-nav", "투표 제출하기");
+    submit.type = "button";
+    submit.addEventListener("click", () => submitVote(submit, note));
+    s.actions.appendChild(submit);
 
   }
 
-  async function showGoogleVoteButton(login, note) {
+  async function submitVote(button, note) {
+    button.disabled = true;
+    note.textContent = "투표를 저장하고 있어요…";
     try {
-      const response = await fetch("/api/config");
-      if (!response.ok) throw new Error("투표 설정을 불러오지 못했어요.");
-      const config = await response.json();
-      if (!config.googleClientId) throw new Error("구글 로그인 설정이 필요해요.");
-      if (!window.google?.accounts?.id) throw new Error("구글 로그인 서비스를 불러오지 못했어요. 새로고침해 주세요.");
-      google.accounts.id.initialize({
-        client_id: config.googleClientId,
-        callback: async ({ credential }) => {
-          note.textContent = "투표를 저장하고 있어요…";
-          login.style.pointerEvents = "none";
-          try {
-            const res = await fetch("/api/vote", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ credential, picks })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "제출에 실패했어요.");
-            note.className = "sum-note ok";
-            note.textContent = "투표가 저장됐어요. 계정당 한 번만 제출할 수 있어요.";
-            login.replaceChildren();
-          } catch (error) {
-            note.textContent = error.message || "제출에 실패했어요.";
-            login.style.pointerEvents = "auto";
-          }
-        }
+      const response = await fetch("/api/vote", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vid, picks })
       });
-      google.accounts.id.renderButton(login, { theme: "outline", size: "large", text: "signin_with", width: 260 });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "제출에 실패했어요.");
+      store.set(VOTED_KEY, vid);
+      note.className = "sum-note ok";
+      note.textContent = "투표가 저장됐어요. 감사합니다!";
+      button.remove();
     } catch (error) {
-      note.textContent = error.message || "로그인 준비에 실패했어요.";
+      note.textContent = error.message || "제출에 실패했어요.";
+      button.disabled = false;
     }
   }
 

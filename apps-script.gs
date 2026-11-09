@@ -6,8 +6,8 @@ function spreadsheet_() {
   if (!id) throw new Error('SPREADSHEET_ID 스크립트 속성을 설정해 주세요.');
   return SpreadsheetApp.openById(id);
 }
-const RESPONSE_TAB = '응답_자동';
-const TALLY_TAB = '집계_자동';
+const RESPONSE_TAB = '응답_공개';
+const TALLY_TAB = '집계_공개';
 const KEYS = [
   'mvp_vocal', 'mvp_piano', 'mvp_guitar', 'mvp_bass', 'mvp_perc',
   'new_vocal', 'new_piano', 'new_guitar', 'new_bass', 'new_perc',
@@ -23,7 +23,7 @@ const LABELS = [
 
 function setup() {
   const book = spreadsheet_();
-  ensureSheet_(book, RESPONSE_TAB, ['제출 시각', '구글 계정 ID', '구글 이메일'].concat(LABELS));
+  ensureSheet_(book, RESPONSE_TAB, ['제출 시각', '브라우저 ID'].concat(LABELS));
   ensureSheet_(book, TALLY_TAB, ['부문', '후보', '득표수']);
 }
 
@@ -41,7 +41,7 @@ function doPost(e) {
       .map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
     if (signature !== expected) return result_(false, '인증되지 않은 요청입니다.');
     const vote = JSON.parse(json);
-    if (!vote.sub || !vote.email || !vote.picks ||
+    if (!vote.vid || !/^[a-zA-Z0-9-]{16,64}$/.test(String(vote.vid)) || !vote.picks ||
         Math.abs(Date.now() - Number(vote.issuedAt)) > 120000) {
       return result_(false, '만료되거나 잘못된 요청입니다.');
     }
@@ -51,18 +51,15 @@ function doPost(e) {
       const book = spreadsheet_();
       const responses = book.getSheetByName(RESPONSE_TAB);
       if (!responses) return result_(false, '시트 준비가 필요합니다.');
-      if (!String(vote.email).toLowerCase().endsWith('@hanyang.ac.kr')) {
-        return result_(false, '한양대 계정만 투표할 수 있습니다.', 'WRONG_DOMAIN');
-      }
       if (responses.getLastRow() >= 2) {
-        const existing = responses.getRange(2, 2, responses.getLastRow() - 1, 2).getDisplayValues();
-        if (existing.some(function (row) {
-          return row[0] === String(vote.sub) || row[1].toLowerCase() === String(vote.email).toLowerCase();
-        })) return result_(false, '이미 투표를 제출한 계정입니다.', 'ALREADY_VOTED');
+        const existing = responses.getRange(2, 2, responses.getLastRow() - 1, 1).getDisplayValues();
+        if (existing.some(function (row) { return row[0] === String(vote.vid); })) {
+          return result_(false, '이 브라우저에서는 이미 투표했어요.', 'ALREADY_VOTED');
+        }
       }
       const picks = KEYS.map(function (key) { return safeCell_(vote.picks[key]); });
       if (picks.some(function (value) { return !value; })) return result_(false, '빈 문항이 있습니다.');
-      responses.appendRow([new Date(), String(vote.sub), String(vote.email).toLowerCase()].concat(picks));
+      responses.appendRow([new Date(), String(vote.vid)].concat(picks));
       try { refreshTally_(book, responses); }
       catch (tallyError) { console.error('집계 갱신 실패:', tallyError); }
       return result_(true);
@@ -78,7 +75,7 @@ function doPost(e) {
 function refreshTally_(book, responses) {
   const counts = {};
   if (responses.getLastRow() >= 2) {
-    const rows = responses.getRange(2, 4, responses.getLastRow() - 1, KEYS.length).getDisplayValues();
+    const rows = responses.getRange(2, 3, responses.getLastRow() - 1, KEYS.length).getDisplayValues();
     rows.forEach(function (row) {
       row.forEach(function (choice, index) {
         if (!choice) return;
