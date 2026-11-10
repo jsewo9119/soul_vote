@@ -601,8 +601,6 @@ const CONFIG = {
   const CAT = Object.fromEntries(CATEGORIES.map(c => [c.key, c]));
   const LIGHT = new Set(["stripes","butter","cream","ember"]);
   const STORE_KEY = "soulwrapped2026:picks";
-  const VID_KEY = "soulwrapped2026:vid";
-  const VOTED_KEY = "soulwrapped2026:public-voted";
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const $ = (s, r = document) => r.querySelector(s);
@@ -616,13 +614,6 @@ const CONFIG = {
   let picks = {};
   try { picks = JSON.parse(store.get(STORE_KEY) || "{}") || {}; } catch (e) { picks = {}; }
   const savePicks = () => store.set(STORE_KEY, JSON.stringify(picks));
-
-  /* Used only to remember a successful submission in this browser. */
-  let vid = store.get(VID_KEY);
-  if (!vid) {
-    vid = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
-    store.set(VID_KEY, vid);
-  }
 
   /* ---------- slide script ----------
      "|" marks a phrase break: each phrase gets its own row, so lines never split mid-phrase. */
@@ -1055,6 +1046,10 @@ const CONFIG = {
   let advanceTimer = null;
   let returnToSummary = false;
   let identity = null;
+  let submittedIdentityKey = null;
+  const identityKey = value => value &&
+    value.name.normalize("NFKC").replace(/\s+/g, "").toLowerCase() + "|" +
+    value.cohort.normalize("NFKC").replace(/\s+/g, "").replace(/기$/, "").toLowerCase();
 
   function syncVote(s) {
     const v = picks[s.cat.key];
@@ -1102,9 +1097,9 @@ const CONFIG = {
       s.actions.appendChild(note);
       return;
     }
-    if (store.get(VOTED_KEY) === vid) {
+    if (identity && submittedIdentityKey === identityKey(identity)) {
       note.className = "sum-note ok";
-      note.textContent = "이 브라우저에서 투표가 제출됐어요.";
+      note.textContent = "이름과 기수로 투표가 제출됐어요.";
       s.actions.appendChild(note);
       const finish = h("button", "btn no-nav", "확정하기");
       finish.type = "button";
@@ -1131,7 +1126,7 @@ const CONFIG = {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "제출에 실패했어요.");
-      store.set(VOTED_KEY, vid);
+      submittedIdentityKey = identityKey(identity);
       go(slides.length - 1);
     } catch (error) {
       note.className = "sum-note error";
