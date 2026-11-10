@@ -438,6 +438,17 @@ button,input{font:inherit;color:inherit}
 .has-pick .voted-note{opacity:.85}
 .vote-error{flex:none;margin:0;padding:9px 12px;border-radius:10px;background:#fff4ef;color:#c52319;
   font:800 13px/1.4 var(--kr);text-align:center}
+.identity .inner{justify-content:center;gap:18px}
+.identity-form{display:flex;flex-direction:column;gap:12px;max-width:520px;width:100%}
+.identity-form label{display:flex;flex-direction:column;gap:7px;font-size:14px;font-weight:800}
+.identity-input{width:100%;box-sizing:border-box;min-height:54px;padding:12px 16px;border-radius:14px;
+  background:color-mix(in srgb, var(--on) 9%, transparent);border:1.5px solid color-mix(in srgb, var(--on) 55%, transparent);
+  color:var(--on);font-size:18px;font-weight:700;-webkit-user-select:text;user-select:text}
+.identity-input::placeholder{color:color-mix(in srgb, var(--on) 55%, transparent)}
+.identity-input:focus-visible{outline:3px solid var(--butter);outline-offset:2px}
+.identity-privacy{margin:2px 0 0;padding:12px 14px;border-left:3px solid var(--butter);
+  background:color-mix(in srgb, var(--on) 9%, transparent);font-size:12px;line-height:1.55;word-break:keep-all}
+.identity .btn{width:100%;margin-top:4px}
 .shake{animation:shake .4s}
 @keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
 
@@ -614,7 +625,7 @@ const CONFIG = {
   try { picks = JSON.parse(store.get(STORE_KEY) || "{}") || {}; } catch (e) { picks = {}; }
   const savePicks = () => store.set(STORE_KEY, JSON.stringify(picks));
 
-  /* One local identifier per browser. Clearing browser storage creates a new ID. */
+  /* Used only to remember a successful submission in this browser. */
   let vid = store.get(VID_KEY);
   if (!vid) {
     vid = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -676,6 +687,8 @@ const CONFIG = {
     L("2026|SOUL AWARDS,","stretch","l"),
     L("지금 시작합니다!","grow","l"),
     L("문항 별로 여러분의|한 표를 던져주세요!","slide","m") ] });
+  add({ type:"identity", scene:"ink", fx:{ t:"iris" }, lines:[
+    L("투표 전|확인할게요","rise","l") ] });
   add({ type:"text", scene:"ember", pos:"start", fx:{ t:"blinds" }, hero:{ type:"rows", t:"MVP" }, lines:[
     L("우선, 악기별로|MVP를 뽑아보려 합니다.|준비되셨나요?","rise","s"),
     L("MVP 후보는|두 번의 정기공연에 모두|참여한 사람들만 포함했어요!","mark","s"),
@@ -891,6 +904,44 @@ const CONFIG = {
       inner.appendChild(fig);
       inner.appendChild(h("p", "photo-count", `ARCHIVE ${String(s.idx + 1).padStart(2, "0")} / ${String(s.total).padStart(2, "0")}`));
       buildLines(s, inner);
+    } else if (s.type === "identity") {
+      const meta = h("div", "meta");
+      meta.appendChild(h("span", "tag", "SOUL AWARDS"));
+      meta.appendChild(h("span", null, "2026"));
+      inner.appendChild(meta);
+      buildLines(s, inner);
+      const form = h("form", "identity-form no-nav");
+      const nameLabel = h("label", null, "이름");
+      const nameInput = h("input", "identity-input");
+      nameInput.type = "text"; nameInput.name = "name"; nameInput.maxLength = 30;
+      nameInput.autocomplete = "name"; nameInput.placeholder = "본인 이름";
+      const cohortLabel = h("label", null, "기수");
+      const cohortInput = h("input", "identity-input");
+      cohortInput.type = "text"; cohortInput.name = "cohort"; cohortInput.maxLength = 20;
+      cohortInput.autocomplete = "off"; cohortInput.placeholder = "예: 15기, 15.5기";
+      nameLabel.appendChild(nameInput); cohortLabel.appendChild(cohortInput);
+      const privacy = h("p", "identity-privacy", "중복 투표와 이상 응답 확인을 위해 이름과 기수를 수집합니다. 투표 종료 후 확인이 끝나면 이 식별 정보는 삭제합니다. 투표 결과와 집계는 남습니다.");
+      const button = h("button", "btn", "확인 후 투표 시작"); button.type = "submit";
+      s.error = h("p", "vote-error", "이름과 기수를 입력해야 다음 페이지로 넘어갈 수 있어요.");
+      s.error.hidden = true; s.error.setAttribute("role", "alert");
+      form.append(nameLabel, cohortLabel, privacy, s.error, button);
+      form.addEventListener("submit", e => {
+        e.preventDefault();
+        const name = nameInput.value.normalize("NFKC").trim();
+        const cohort = cohortInput.value.normalize("NFKC").trim();
+        if (!/^[\p{L}\p{M}\s·.\-]{2,30}$/u.test(name) ||
+            !/^[\p{L}\p{N}\s·.\-]{1,20}$/u.test(cohort)) {
+          s.error.textContent = "이름과 기수를 올바르게 입력해 주세요.";
+          s.error.hidden = false;
+          return;
+        }
+        identity = { name, cohort };
+        s.error.hidden = true;
+        nameInput.blur(); cohortInput.blur();
+        go(cur + 1);
+      });
+      s.form = form;
+      inner.appendChild(form);
     } else if (s.type === "vote") {
       const c = s.cat;
       const meta = h("div", "meta");
@@ -1011,6 +1062,7 @@ const CONFIG = {
   /* ---------- votes ---------- */
   let advanceTimer = null;
   let returnToSummary = false;
+  let identity = null;
 
   function syncVote(s) {
     const v = picks[s.cat.key];
@@ -1083,7 +1135,7 @@ const CONFIG = {
     try {
       const response = await fetch("/api/vote", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vid, picks })
+        body: JSON.stringify({ name: identity.name, cohort: identity.cohort, picks })
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "제출에 실패했어요.");
@@ -1148,7 +1200,7 @@ const CONFIG = {
     s.lines.forEach(l => { times.push(t); t += Math.max(1300, 700 + [...plain(l.t)].length * 58); });
     const last = s.lines.length ? [...plain(s.lines[s.lines.length - 1].t)].length : 0;
     let end = t + 1500 + last * 30;
-    if (s.type === "vote" || s.type === "summary" || s.type === "final") end = Infinity;
+    if (s.type === "identity" || s.type === "vote" || s.type === "summary" || s.type === "final") end = Infinity;
     const optsAt = s.type === "vote" ? times[times.length - 1] + 700 : null;
     return { times, end, optsAt, revealed: 0, elapsed: 0, optsShown: false };
   }
@@ -1156,7 +1208,7 @@ const CONFIG = {
   function resetSlide(s) {
     (s.lineEls || []).forEach(e => e.classList.remove("in", "past"));
     s.el.classList.remove("show-opts", "done");
-    if (s.type === "vote") s.error.hidden = true;
+    if (s.type === "vote" || s.type === "identity") s.error.hidden = true;
   }
 
   function go(i) {
@@ -1206,6 +1258,14 @@ const CONFIG = {
   function next() {
     const s = slides[cur];
     if (s.type === "summary") return;
+    if (s.type === "identity" && !identity) {
+      s.error.textContent = "이름과 기수를 입력해야 다음 페이지로 넘어갈 수 있어요.";
+      s.error.hidden = false;
+      s.error.classList.remove("shake");
+      void s.error.offsetWidth;
+      s.error.classList.add("shake");
+      return;
+    }
     if (s.type === "vote" && !picks[s.cat.key]) {
       if (!st.optsShown) { st.elapsed = st.optsAt; tick(); }
       s.error.hidden = false;

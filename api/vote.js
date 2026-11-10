@@ -16,10 +16,15 @@ module.exports = async (request, response) => {
   }
   try {
     const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
-    if (!body || typeof body.vid !== 'string' ||
-        !/^[a-zA-Z0-9-]{16,64}$/.test(body.vid) ||
+    if (!body || typeof body.name !== 'string' || typeof body.cohort !== 'string' ||
         !body.picks || typeof body.picks !== 'object') {
       return response.status(400).json({ error: '투표 내용이 올바르지 않아요.' });
+    }
+    const name = body.name.normalize('NFKC').trim();
+    const cohort = body.cohort.normalize('NFKC').trim();
+    if (!/^[\p{L}\p{M}\s·.\-]{2,30}$/u.test(name) ||
+        !/^[\p{L}\p{N}\s·.\-]{1,20}$/u.test(cohort)) {
+      return response.status(400).json({ error: '이름과 기수를 확인해 주세요.' });
     }
     const picks = {};
     for (const key of SHEET_KEYS) {
@@ -36,7 +41,8 @@ module.exports = async (request, response) => {
       return response.status(400).json({ error: '대상 이름을 확인해 주세요.' });
     }
     const payload = {
-      vid: body.vid,
+      name,
+      cohort,
       picks,
       issuedAt: Date.now()
     };

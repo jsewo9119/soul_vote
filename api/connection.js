@@ -13,7 +13,7 @@ module.exports = async (_request, response) => {
     const upstream = await fetch(url, { redirect: 'follow' });
     const data = JSON.parse(await upstream.text());
     const expected = crypto.createHmac('sha256', VOTE_SHARED_SECRET).update(challenge).digest('hex');
-    const connected = data.service === 'soul-vote' && data.version === 'public-v2' &&
+    const connected = data.service === 'soul-vote' && data.version === 'name-v1' &&
       typeof data.proof === 'string' && data.proof.length === expected.length &&
       crypto.timingSafeEqual(Buffer.from(data.proof), Buffer.from(expected));
     return response.status(connected ? 200 : 503).json({

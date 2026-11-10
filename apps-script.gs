@@ -8,7 +8,7 @@ function spreadsheet_() {
 }
 const RESPONSE_TAB = '응답_공개';
 const TALLY_TAB = '집계_공개';
-const SCRIPT_VERSION = 'public-v2';
+const SCRIPT_VERSION = 'name-v1';
 const KEYS = [
   'mvp_vocal', 'mvp_piano', 'mvp_guitar', 'mvp_bass', 'mvp_perc',
   'new_vocal', 'new_piano', 'new_guitar', 'new_bass', 'new_perc',
@@ -26,6 +26,7 @@ function setup() {
   const book = spreadsheet_();
   const responses = ensureSheet_(book, RESPONSE_TAB, ['제출 시각', '브라우저 ID'].concat(LABELS));
   ensureSheet_(book, TALLY_TAB, ['부문', '후보', '득표수']);
+  migrateIdentityColumns_(responses);
   formatResponses_(responses);
   refreshTally_(book, responses);
 }
@@ -57,7 +58,7 @@ function doPost(e) {
     const padded = payload64 + '='.repeat((4 - payload64.length % 4) % 4);
     const json = Utilities.newBlob(Utilities.base64DecodeWebSafe(padded)).getDataAsString('UTF-8');
     const vote = JSON.parse(json);
-    if (!vote.vid || !/^[a-zA-Z0-9-]{16,64}$/.test(String(vote.vid)) || !vote.picks ||
+    if (!vote.name || !vote.cohort || !vote.picks ||
         Math.abs(Date.now() - Number(vote.issuedAt)) > 120000) {
       return result_(false, '만료되거나 잘못된 요청입니다.');
     }
@@ -67,15 +68,26 @@ function doPost(e) {
       const book = spreadsheet_();
       const responses = book.getSheetByName(RESPONSE_TAB);
       if (!responses) return result_(false, '시트 준비가 필요합니다.');
+      if (PropertiesService.getScriptProperties().getProperty('VOTING_CLOSED') === 'true') {
+        return result_(false, '투표가 종료됐습니다.', 'VOTING_CLOSED');
+      }
+      if (responses.getRange('B1').getDisplayValue() !== '이름' ||
+          responses.getRange('C1').getDisplayValue() !== '기수') {
+        return result_(false, '이름·기수 열 준비가 필요합니다. setup을 실행해 주세요.');
+      }
+      const name = safePerson_(vote.name, 30);
+      const cohort = safePerson_(vote.cohort, 20);
+      if (!name || !cohort) return result_(false, '이름과 기수를 확인해 주세요.');
+      const voterKey = personKey_(name, cohort);
       if (responses.getLastRow() >= 2) {
-        const existing = responses.getRange(2, 2, responses.getLastRow() - 1, 1).getDisplayValues();
-        if (existing.some(function (row) { return row[0] === String(vote.vid); })) {
-          return result_(false, '이 브라우저에서는 이미 투표했어요.', 'ALREADY_VOTED');
+        const existing = responses.getRange(2, 2, responses.getLastRow() - 1, 2).getDisplayValues();
+        if (existing.some(function (row) { return row[0] && row[1] && personKey_(row[0], row[1]) === voterKey; })) {
+          return result_(false, '같은 이름과 기수로 이미 투표했어요.', 'ALREADY_VOTED');
         }
       }
       const picks = KEYS.map(function (key) { return safeCell_(vote.picks[key]); });
       if (picks.some(function (value) { return !value; })) return result_(false, '빈 문항이 있습니다.');
-      responses.appendRow([new Date(), String(vote.vid)].concat(picks));
+      responses.appendRow([new Date(), name, cohort, ''].concat(picks));
       try { refreshTally_(book, responses); }
       catch (tallyError) { console.error('집계 갱신 실패:', tallyError); }
       return result_(true);
@@ -93,10 +105,30 @@ function hmac_(value, secret) {
     .map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
 }
 
+function safePerson_(value, maxLength) {
+  const text = String(value == null ? '' : value).normalize('NFKC').trim();
+  return text.length <= maxLength && /^[\p{L}\p{M}\p{N}\s·.\-]+$/u.test(text) ? text : '';
+}
+
+function personKey_(name, cohort) {
+  return String(name).normalize('NFKC').replace(/\s+/g, '').toLowerCase() + '|' +
+    String(cohort).normalize('NFKC').replace(/\s+/g, '').replace(/기$/, '').toLowerCase();
+}
+
+function migrateIdentityColumns_(responses) {
+  if (responses.getRange('B1').getDisplayValue() === '이름' &&
+      responses.getRange('C1').getDisplayValue() === '기수') return;
+  const oldHeader = responses.getRange('B1').getDisplayValue();
+  if (oldHeader !== '투표자 ID' && oldHeader !== '브라우저 ID') {
+    throw new Error('기존 응답 구조를 확인할 수 없습니다. 기존 데이터는 변경하지 않았습니다.');
+  }
+  responses.insertColumnsBefore(2, 2);
+}
+
 function refreshTally_(book, responses) {
   const counts = KEYS.map(function () { return {}; });
   if (responses.getLastRow() >= 2) {
-    const rows = responses.getRange(2, 3, responses.getLastRow() - 1, KEYS.length).getDisplayValues();
+    const rows = responses.getRange(2, 5, responses.getLastRow() - 1, KEYS.length).getDisplayValues();
     rows.forEach(function (row) {
       row.forEach(function (choice, index) {
         if (!choice) return;
@@ -132,14 +164,32 @@ function refreshTally_(book, responses) {
 }
 
 function formatResponses_(responses) {
-  const header = responses.getRange(1, 1, 1, 2 + LABELS.length);
-  header.setValues([['제출 시각', '투표자 ID'].concat(LABELS)]);
+  const header = responses.getRange(1, 1, 1, 4 + LABELS.length);
+  header.setValues([['제출 시각', '이름', '기수', '이전 브라우저 ID'].concat(LABELS)]);
   header.setBackground('#1a3cff').setFontColor('#ffffff').setFontWeight('bold');
   responses.setFrozenRows(1);
   responses.setColumnWidth(1, 145);
-  responses.setColumnWidth(2, 300);
-  for (let column = 3; column <= 2 + LABELS.length; column++) {
+  responses.setColumnWidth(2, 110);
+  responses.setColumnWidth(3, 90);
+  responses.setColumnWidth(4, 210);
+  for (let column = 5; column <= 4 + LABELS.length; column++) {
     responses.setColumnWidth(column, 160);
+  }
+}
+
+// Run only after voting ends and irregular responses have been reviewed.
+// This closes voting and removes all stored name, cohort, and legacy browser IDs.
+function closeVotingAndPurgeIdentifiers() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    PropertiesService.getScriptProperties().setProperty('VOTING_CLOSED', 'true');
+    const responses = spreadsheet_().getSheetByName(RESPONSE_TAB);
+    if (responses && responses.getLastRow() >= 2) {
+      responses.getRange(2, 2, responses.getLastRow() - 1, 3).clearContent();
+    }
+  } finally {
+    lock.releaseLock();
   }
 }
 
